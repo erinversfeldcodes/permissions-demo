@@ -1,0 +1,13 @@
+# Automated Deployment Testing Dependencies
+# Python 3.8+ required
+
+# HTTP requests and GraphQL testing
+requests==2.31.0
+urllib3==2.0.7
+
+# Data handling and utilities
+dataclasses==0.6; python_version < "3.7"
+
+# Development and testing utilities (optional)
+pytest==7.4.3
+pytest-json-report==1.5.0
