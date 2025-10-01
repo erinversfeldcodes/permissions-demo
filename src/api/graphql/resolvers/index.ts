@@ -1042,21 +1042,30 @@ export const resolvers = {
         };
       }
 
-      const permissionId = args.id;
+      const { input } = args;
+      const validationResult = validateRevokePermissionInput(input);
+      if (!validationResult.success) {
+        return {
+          success: false,
+          errors: [mapAppErrorToGraphQLError(validationResult.error!)],
+        };
+      }
+      const { permissionId } = validationResult.data!;
 
       try {
+        // Find the permission to revoke
         const permission = await db.userPermission.findUnique({
           where: { id: permissionId },
           include: {
             user: true,
             node: true,
+            grantedBy: true,
           },
         });
 
         if (!permission) {
           return {
             success: false,
-            revokedAt: undefined,
             errors: [
               {
                 message: "Permission not found",
@@ -1066,6 +1075,21 @@ export const resolvers = {
           };
         }
 
+        // Check if permission is already revoked
+        if (!permission.isActive) {
+          return {
+            success: false,
+            errors: [
+              {
+                message: "Permission is already revoked",
+                code: "ALREADY_REVOKED",
+              },
+            ],
+          };
+        }
+
+        // Check if user has permission to revoke this permission
+        // User can revoke if they are admin or they originally granted the permission
         const currentUser = await db.user.findUnique({
           where: { id: context.userId! },
           include: {
@@ -1082,7 +1106,6 @@ export const resolvers = {
         if (!hasAdminPermission && permission.grantedById !== context.userId) {
           return {
             success: false,
-            revokedAt: undefined,
             errors: [
               {
                 message: "Insufficient permissions to revoke this permission",
@@ -1092,7 +1115,8 @@ export const resolvers = {
           };
         }
 
-        const updatedPermission = await db.userPermission.update({
+        // Revoke the permission by setting isActive to false
+        const revokedPermission = await db.userPermission.update({
           where: { id: permissionId },
           data: { isActive: false },
           include: {
@@ -1102,19 +1126,56 @@ export const resolvers = {
           },
         });
 
+        // Return success with the revoked permission
         return {
           success: true,
-          revokedAt: new Date(),
+          permission: {
+            id: revokedPermission.id,
+            userId: revokedPermission.userId,
+            nodeId: revokedPermission.nodeId,
+            permissionType: revokedPermission.permissionType as PermissionType,
+            grantedById: revokedPermission.grantedById,
+            grantedAt: revokedPermission.grantedAt,
+            expiresAt: revokedPermission.expiresAt || undefined,
+            isActive: revokedPermission.isActive,
+            isEffective: revokedPermission.isActive && (!revokedPermission.expiresAt || revokedPermission.expiresAt > new Date()),
+            user: revokedPermission.user ? {
+              id: revokedPermission.user.id,
+              email: revokedPermission.user.email,
+              name: revokedPermission.user.name,
+              organizationNodeId: revokedPermission.user.organizationNodeId,
+              isActive: revokedPermission.user.isActive,
+              createdAt: revokedPermission.user.createdAt,
+              updatedAt: revokedPermission.user.updatedAt,
+              lastLoginAt: revokedPermission.user.lastLoginAt || undefined,
+            } : undefined,
+            node: {
+              id: revokedPermission.node.id,
+              name: revokedPermission.node.name,
+              parentId: revokedPermission.node.parentId,
+              level: revokedPermission.node.level,
+              metadata: revokedPermission.node.metadata,
+              isActive: revokedPermission.node.isActive,
+              createdAt: revokedPermission.node.createdAt,
+              updatedAt: revokedPermission.node.updatedAt,
+            },
+            grantedBy: revokedPermission.grantedBy ? {
+              id: revokedPermission.grantedBy.id,
+              email: revokedPermission.grantedBy.email,
+              name: revokedPermission.grantedBy.name,
+              organizationNodeId: revokedPermission.grantedBy.organizationNodeId,
+              isActive: revokedPermission.grantedBy.isActive,
+              createdAt: revokedPermission.grantedBy.createdAt,
+              updatedAt: revokedPermission.grantedBy.updatedAt,
+              lastLoginAt: revokedPermission.grantedBy.lastLoginAt || undefined,
+            } : undefined,
+          },
           errors: [],
         };
       } catch (error) {
-        const appError =
-          error instanceof Error
-            ? error
-            : new Error("Failed to revoke permission");
+        const appError = error instanceof Error ? error : new Error("Failed to revoke permission");
         return {
           success: false,
-          revokedAt: undefined,
           errors: [
             {
               message: appError.message || "Failed to revoke permission",
@@ -1308,7 +1369,6 @@ export const resolvers = {
 
           results.push({
             success: true,
-            revokedAt: new Date(),
             errors: [],
           });
         } catch (error) {

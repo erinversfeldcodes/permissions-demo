@@ -87,7 +87,10 @@ class DatabaseConnection {
     ) => Promise<T>,
   ): Promise<T> {
     const prisma = DatabaseConnection.getInstance();
-    return await prisma.$transaction(callback);
+    return await prisma.$transaction(callback, {
+      timeout: 15000, // 15 seconds timeout for complex operations
+      maxWait: 5000, // 5 seconds max wait to acquire transaction
+    });
   }
 
   static async executeRaw(query: string, params: any[] = []): Promise<any> {
