@@ -78,13 +78,9 @@ export const resolvers = {
         throw new Error("User not found");
       }
 
-      // Ensure permissions have grantedBy populated
+      // Enrich permissions with additional data if needed
       const enrichedPermissions = await Promise.all(
         permissions.map(async (permission) => {
-          if (!permission.grantedBy && permission.grantedById) {
-            const grantedBy = await context.dataloaders.userById.load(permission.grantedById);
-            return enrichPermission({ ...permission, grantedBy });
-          }
           return enrichPermission(permission);
         })
       );
@@ -193,10 +189,12 @@ export const resolvers = {
       context: GraphQLContext,
     ): Promise<UsersConnection> => {
       const {
-        consistencyLevel = ConsistencyLevel.EVENTUAL,
-        filter,
-        first = 20,
-        after,
+        input: {
+          consistencyLevel = ConsistencyLevel.EVENTUAL,
+          filter,
+          first = 20,
+          after,
+        }
       } = args;
 
       if (!context.isAuthenticated) {
@@ -1044,11 +1042,19 @@ export const resolvers = {
         };
       }
 
-      const { id } = args;
+      const { input } = args;
+      const validationResult = validateRevokePermissionInput(input);
+      if (!validationResult.success) {
+        return {
+          success: false,
+          errors: [mapAppErrorToGraphQLError(validationResult.error!)],
+        };
+      }
+      const { permissionId } = validationResult.data!;
 
       try {
         const permission = await db.userPermission.findUnique({
-          where: { id },
+          where: { id: permissionId },
           include: {
             user: true,
             node: true,
@@ -1058,7 +1064,7 @@ export const resolvers = {
         if (!permission) {
           return {
             success: false,
-            permission: null,
+            revokedAt: undefined,
             errors: [
               {
                 message: "Permission not found",
@@ -1084,7 +1090,7 @@ export const resolvers = {
         if (!hasAdminPermission && permission.grantedById !== context.userId) {
           return {
             success: false,
-            permission: null,
+            revokedAt: undefined,
             errors: [
               {
                 message: "Insufficient permissions to revoke this permission",
@@ -1095,7 +1101,7 @@ export const resolvers = {
         }
 
         const updatedPermission = await db.userPermission.update({
-          where: { id },
+          where: { id: permissionId },
           data: { isActive: false },
           include: {
             user: true,
@@ -1106,7 +1112,7 @@ export const resolvers = {
 
         return {
           success: true,
-          permission: updatedPermission,
+          revokedAt: new Date(),
           errors: [],
         };
       } catch (error) {
@@ -1116,7 +1122,7 @@ export const resolvers = {
             : new Error("Failed to revoke permission");
         return {
           success: false,
-          permission: null,
+          revokedAt: undefined,
           errors: [
             {
               message: appError.message || "Failed to revoke permission",

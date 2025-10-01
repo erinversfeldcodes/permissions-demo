@@ -9,6 +9,7 @@ import { typeDefs } from '../../api/graphql/schema'
 import { resolvers } from '../../api/graphql/resolvers'
 import { PermissionType } from '../../shared/types'
 import { GraphQLContext } from '../../api/graphql/types/context'
+import { createDataLoaders } from '../../api/graphql/dataloaders'
 import { nanoid } from 'nanoid'
 
 const prisma = new PrismaClient({
@@ -41,7 +42,8 @@ describe('Authentication & Authorization API Tests', () => {
           requestId: nanoid(),
           userAgent: req.headers?.['user-agent'],
           ipAddress: req.socket?.remoteAddress,
-          permissions: user ? [] : undefined
+          permissions: user ? [] : undefined,
+          dataloaders: createDataLoaders()
         }
       }
     })

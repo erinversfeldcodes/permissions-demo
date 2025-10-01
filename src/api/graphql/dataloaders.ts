@@ -165,7 +165,10 @@ export function createAccessibleUsersLoader() {
             LIMIT 100
           `, ...params);
 
-          return users as { id: string; name: string; email: string; organization_node_id: string }[];
+          return (users as { id: string; name: string; email: string; organization_node_id: string }[]).map(user => ({
+            ...user,
+            organizationNodeId: user.organization_node_id
+          }));
         })
       );
 
@@ -173,7 +176,7 @@ export function createAccessibleUsersLoader() {
     },
     {
       maxBatchSize: 10,
-      cacheKeyFn: (key) => JSON.stringify(key),
+      cacheKeyFn: (key) => key,
     }
   );
 }

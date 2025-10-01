@@ -82,14 +82,14 @@ export class Permission {
     if (expiresAt < new Date()) {
       throw new ValidationError(
         "Expiration date must be in the future",
-        "INVALID_EXPIRATION",
+        { code: "INVALID_EXPIRATION" },
       );
     }
 
     if (expiresAt <= this.props.grantedAt) {
       throw new ValidationError(
         "Expiration date must be after grant date",
-        "INVALID_EXPIRATION",
+        { code: "INVALID_EXPIRATION" },
       );
     }
 

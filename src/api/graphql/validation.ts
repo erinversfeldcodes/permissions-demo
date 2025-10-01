@@ -122,7 +122,7 @@ export const createRateLimitRule = (): ValidationRule => {
     return {
       OperationDefinition: (node) => {
         // Simple rate limiting based on client IP (in production, use Redis)
-        const clientId = context.getVariableValues()?.clientId || 'anonymous';
+        const clientId = 'anonymous'; // TODO: Extract client ID from operation variables
         const now = Date.now();
 
         let tracker = requestTracker.get(clientId);
