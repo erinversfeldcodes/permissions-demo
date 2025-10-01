@@ -1,0 +1,165 @@
+// Ekko Permissions - Hierarchical Role-Based Access Control System
+// This schema implements both closure table and materialized view patterns
+// for optimal read/write performance at scale (100k+ users/day)
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Organization Structure Context
+// Represents hierarchical organizational nodes (National -> City -> Suburb)
+model OrganizationNode {
+  id        String   @id @default(cuid())
+  name      String
+  parentId  String?  @map("parent_id")
+  level     Int      @default(0)
+  metadata  String?  @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  isActive  Boolean  @default(true) @map("is_active")
+
+  // Self-referential relationship for adjacency list
+  parent   OrganizationNode?  @relation("NodeHierarchy", fields: [parentId], references: [id])
+  children OrganizationNode[] @relation("NodeHierarchy")
+
+  // Users assigned to this organizational node
+  users User[]
+
+  // Permissions granted at this node level
+  permissions UserPermission[]
+
+  // Closure table relationships
+  ancestorRelations   NodeHierarchy[] @relation("AncestorNode")
+  descendantRelations NodeHierarchy[] @relation("DescendantNode")
+
+  @@map("organization_nodes")
+  @@index([parentId])
+  @@index([level])
+  @@index([isActive])
+}
+
+// Closure Table Pattern for efficient hierarchy queries
+// Pre-computes all ancestor-descendant relationships
+model NodeHierarchy {
+  ancestorId   String @map("ancestor_id")
+  descendantId String @map("descendant_id")
+  depth        Int    @default(0)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  ancestor   OrganizationNode @relation("AncestorNode", fields: [ancestorId], references: [id], onDelete: Cascade)
+  descendant OrganizationNode @relation("DescendantNode", fields: [descendantId], references: [id], onDelete: Cascade)
+
+  @@id([ancestorId, descendantId])
+  @@map("node_hierarchies")
+  @@index([ancestorId])
+  @@index([descendantId])
+  @@index([depth])
+  @@index([ancestorId, descendantId], name: "idx_node_hierarchies_ancestor_descendant")
+}
+
+// Identity & Access Management Context
+// Core user identity and authentication
+model User {
+  id                   String   @id @default(cuid())
+  email                String   @unique
+  name                 String
+  passwordHash         String?  @map("password_hash")
+  organizationNodeId   String   @map("organization_node_id")
+  isActive             Boolean  @default(true) @map("is_active")
+  lastLoginAt          DateTime? @map("last_login_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  // Organization relationship
+  organizationNode OrganizationNode @relation(fields: [organizationNodeId], references: [id])
+
+  // Permission relationships
+  permissions UserPermission[]
+
+  // Audit trail
+  grantedPermissions UserPermission[] @relation("PermissionGrantedBy")
+
+  // Materialized view status tracking
+  materializedViewStatus MaterializedViewStatus?
+
+  @@map("users")
+  @@index([email])
+  @@index([organizationNodeId])
+  @@index([isActive])
+  @@index([organizationNodeId, isActive, name], name: "idx_users_org_node_active_name")
+}
+
+// Permission Management Context
+// Individual permission grants for users
+model UserPermission {
+  id             String      @id @default(cuid())
+  userId         String      @map("user_id")
+  nodeId         String      @map("node_id")
+  permissionType PermissionType @map("permission_type")
+  grantedById    String      @map("granted_by_id")
+  grantedAt      DateTime    @default(now()) @map("granted_at")
+  expiresAt      DateTime?   @map("expires_at")
+  isActive       Boolean     @default(true) @map("is_active")
+
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  node        OrganizationNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  grantedBy   User             @relation("PermissionGrantedBy", fields: [grantedById], references: [id])
+
+  @@unique([userId, nodeId, permissionType])
+  @@map("user_permissions")
+  @@index([userId])
+  @@index([nodeId])
+  @@index([grantedAt])
+  @@index([expiresAt])
+  @@index([isActive])
+  @@index([userId, isActive, expiresAt], name: "idx_user_permissions_user_active_expires")
+  @@index([nodeId, isActive], name: "idx_user_permissions_node_active")
+}
+
+// Permission types for granular access control
+enum PermissionType {
+  READ    // Can view users in scope
+  MANAGE  // Can modify users in scope
+  ADMIN   // Full administrative access in scope
+
+  @@map("permission_type")
+}
+
+// Materialized View Tracking for CQRS optimization
+// Tracks freshness of materialized views for each user
+model MaterializedViewStatus {
+  userId        String   @id @map("user_id")
+  lastRefreshed DateTime @default(now()) @map("last_refreshed")
+  isStale       Boolean  @default(false) @map("is_stale")
+  refreshCount  Int      @default(0) @map("refresh_count")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("materialized_view_status")
+  @@index([isStale])
+  @@index([lastRefreshed])
+}
+
+// Event Sourcing for audit trail and CQRS
+// Stores domain events for replay and audit capabilities
+model DomainEvent {
+  id           String   @id @default(cuid())
+  aggregateId  String   @map("aggregate_id")
+  eventType    String   @map("event_type")
+  eventData    String   @map("event_data")
+  version      Int      @default(1)
+  occurredAt   DateTime @default(now()) @map("occurred_at")
+  userId       String?  @map("user_id") // Who triggered the event
+
+  @@map("domain_events")
+  @@index([aggregateId])
+  @@index([eventType])
+  @@index([occurredAt])
+  @@index([userId])
+}

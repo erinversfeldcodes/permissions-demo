@@ -1,0 +1,149 @@
+// Prisma schema for PostgreSQL production environment
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  name               String
+  passwordHash       String    @map("password_hash")
+  organizationNodeId String    @map("organization_node_id")
+  isActive           Boolean   @default(true) @map("is_active")
+  lastLoginAt        DateTime? @map("last_login_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  organizationNode OrganizationNode @relation(fields: [organizationNodeId], references: [id], onDelete: Restrict)
+  permissions      UserPermission[]
+  grantedBy        UserPermission[] @relation("GrantedByUser")
+
+  @@map("users")
+  @@index([email])
+  @@index([organizationNodeId])
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+// Organization Node model with hierarchy support
+model OrganizationNode {
+  id        String   @id @default(cuid())
+  name      String
+  parentId  String?  @map("parent_id")
+  level     Int
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  isActive  Boolean  @default(true) @map("is_active")
+
+  // Self-referential relations
+  parent   OrganizationNode?  @relation("NodeHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children OrganizationNode[] @relation("NodeHierarchy")
+
+  // Other relations
+  users               User[]
+  permissions         UserPermission[]
+  ancestorHierarchies NodeHierarchy[]  @relation("AncestorNode")
+  descendantHierarchy NodeHierarchy[]  @relation("DescendantNode")
+
+  @@map("organization_nodes")
+  @@index([parentId])
+  @@index([level])
+  @@index([isActive])
+  @@index([name])
+}
+
+// Closure Table for O(1) hierarchy queries
+model NodeHierarchy {
+  id           String @id @default(cuid())
+  ancestorId   String @map("ancestor_id")
+  descendantId String @map("descendant_id")
+  depth        Int
+
+  // Relations
+  ancestor   OrganizationNode @relation("AncestorNode", fields: [ancestorId], references: [id], onDelete: Cascade)
+  descendant OrganizationNode @relation("DescendantNode", fields: [descendantId], references: [id], onDelete: Cascade)
+
+  @@unique([ancestorId, descendantId])
+  @@map("node_hierarchies")
+  @@index([ancestorId])
+  @@index([descendantId])
+  @@index([depth])
+}
+
+// User Permission model
+model UserPermission {
+  id             String        @id @default(cuid())
+  userId         String        @map("user_id")
+  nodeId         String        @map("node_id")
+  permissionType PermissionType @map("permission_type")
+  grantedById    String        @map("granted_by_id")
+  grantedAt      DateTime      @default(now()) @map("granted_at")
+  expiresAt      DateTime?     @map("expires_at")
+  isActive       Boolean       @default(true) @map("is_active")
+
+  // Relations
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  node      OrganizationNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  grantedBy User             @relation("GrantedByUser", fields: [grantedById], references: [id], onDelete: Restrict)
+
+  @@unique([userId, nodeId, permissionType])
+  @@map("user_permissions")
+  @@index([userId])
+  @@index([nodeId])
+  @@index([permissionType])
+  @@index([grantedById])
+  @@index([isActive])
+  @@index([expiresAt])
+  @@index([grantedAt])
+}
+
+// Materialized View Status tracking
+model MaterializedViewStatus {
+  id            String   @id @default(cuid())
+  userId        String   @unique @map("user_id")
+  isStale       Boolean  @default(false) @map("is_stale")
+  lastRefreshed DateTime @default(now()) @map("last_refreshed")
+  refreshCount  Int      @default(0) @map("refresh_count")
+
+  @@map("materialized_view_status")
+  @@index([userId])
+  @@index([isStale])
+  @@index([lastRefreshed])
+}
+
+// Domain Events for Event Sourcing
+model DomainEvent {
+  id              String   @id @default(cuid())
+  aggregateId     String   @map("aggregate_id")
+  aggregateType   String   @map("aggregate_type")
+  eventType       String   @map("event_type")
+  eventVersion    Int      @map("event_version")
+  payload         Json
+  metadata        Json?
+  occurredAt      DateTime @default(now()) @map("occurred_at")
+  processedAt     DateTime? @map("processed_at")
+  processingError String?  @map("processing_error")
+
+  @@map("domain_events")
+  @@index([aggregateId])
+  @@index([aggregateType])
+  @@index([eventType])
+  @@index([occurredAt])
+  @@index([processedAt])
+}
+
+// Enums
+enum PermissionType {
+  READ
+  MANAGE
+  ADMIN
+}
