@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [ main, develop ]
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, feat/deploy-to-vercel ]
 
 jobs:
   test:
@@ -86,16 +86,25 @@ jobs:
         pip install -r requirements.txt
 
     - name: Wait for Vercel deployment
-      uses: patrickedqvist/wait-for-vercel-preview@v1.3.1
-      id: waitForDeployment
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        max_timeout: 300
+      run: |
+        echo "Waiting for Vercel deployment to be ready..."
+        sleep 60
+        echo "Proceeding with deployment tests"
+
+    - name: Get Vercel preview URL
+      id: getPreviewUrl
+      run: |
+        # Generate preview URL based on branch name
+        BRANCH_NAME="${{ github.head_ref }}"
+        CLEAN_BRANCH=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9]/-/g')
+        PREVIEW_URL="https://permissions-demo-git-${CLEAN_BRANCH}-erinversfeldcodes-projects.vercel.app"
+        echo "Generated preview URL: $PREVIEW_URL"
+        echo "preview_url=$PREVIEW_URL" >> $GITHUB_OUTPUT
 
     - name: Run deployment tests against preview URL
       run: |
-        echo "Preview URL: ${{ steps.waitForDeployment.outputs.url }}"
-        python scripts/automated-deployment-testing.py --url=${{ steps.waitForDeployment.outputs.url }}
+        echo "Preview URL: ${{ steps.getPreviewUrl.outputs.preview_url }}"
+        python scripts/automated-deployment-testing.py --url=${{ steps.getPreviewUrl.outputs.preview_url }}
       env:
         VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
 
@@ -112,7 +121,7 @@ jobs:
               const results = JSON.parse(fs.readFileSync('scripts/deployment-test-results.json', 'utf8'));
               testResults = `🚀 **Preview Deployment Tests**
 
-              **Preview URL**: ${{ steps.waitForDeployment.outputs.url }}
+              **Preview URL**: ${{ steps.getPreviewUrl.outputs.preview_url }}
 
               **Results**: ${results.summary || 'Tests completed'}
               `;
@@ -120,7 +129,7 @@ jobs:
           } catch (error) {
             testResults = `❌ **Preview Deployment Tests Failed**
 
-            **Preview URL**: ${{ steps.waitForDeployment.outputs.url }}
+            **Preview URL**: ${{ steps.getPreviewUrl.outputs.preview_url }}
             **Error**: ${error.message}
             `;
           }
