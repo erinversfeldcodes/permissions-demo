@@ -78,7 +78,7 @@ export interface GrantPermissionResponse extends BaseResponse {
 }
 
 export interface RevokePermissionResponse extends BaseResponse {
-  readonly revokedAt?: Date;
+  readonly permission?: PermissionResponse;
 }
 
 export interface BulkGrantPermissionResponse extends BaseResponse {

@@ -1444,8 +1444,8 @@ class EkkoTestRunner:
 
         # Step 3: Revoke the granted permission
         revoke_permission_mutation = """
-        mutation RevokePermission($id: ID!) {
-            revokePermission(id: $id) {
+        mutation RevokePermission($input: RevokePermissionInput!) {
+            revokePermission(input: $input) {
                 success
                 permission {
                     id
@@ -1461,7 +1461,7 @@ class EkkoTestRunner:
         }
         """
 
-        revoke_variables = {'id': permission_id_to_revoke}
+        revoke_variables = {'input': {'permissionId': permission_id_to_revoke}}
         revoke_response = self.make_graphql_request(revoke_permission_mutation, revoke_variables, admin_token)
 
         if 'errors' in revoke_response:

@@ -152,6 +152,11 @@ export const typeDefs = gql`
     expiresAt: DateTime
   }
 
+  input RevokePermissionInput {
+    permissionId: ID!
+    reason: String
+  }
+
   input UserFilter {
     isActive: Boolean
     organizationNodeIds: [ID!]
@@ -291,7 +296,7 @@ export const typeDefs = gql`
 
     # Permission management
     grantPermission(input: GrantPermissionInput!): PermissionMutationResponse!
-    revokePermission(id: ID!): PermissionMutationResponse!
+    revokePermission(input: RevokePermissionInput!): PermissionMutationResponse!
     updatePermission(id: ID!, input: UpdatePermissionInput!): PermissionMutationResponse!
     updatePermissionExpiration(
       id: ID!
