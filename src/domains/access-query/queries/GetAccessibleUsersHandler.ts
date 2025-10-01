@@ -62,10 +62,8 @@ export class GetAccessibleUsersHandler {
     });
 
     if (!viewStatus || viewStatus.isStale) {
-      await backgroundJobs.scheduleMaterializedViewRefresh(
-        query.requesterId,
-        3,
-      );
+      // Schedule background refresh for next time
+      await backgroundJobs.scheduleMaterializedViewRefresh(query.requesterId, 3);
       return DataSource.CLOSURE_TABLE;
     }
 
@@ -74,10 +72,8 @@ export class GetAccessibleUsersHandler {
       : 5;
     const thresholdTime = new Date(Date.now() - thresholdMinutes * 60 * 1000);
     if (viewStatus.lastRefreshed < thresholdTime) {
-      await backgroundJobs.scheduleMaterializedViewRefresh(
-        query.requesterId,
-        4,
-      );
+      // Schedule background refresh for next time
+      await backgroundJobs.scheduleMaterializedViewRefresh(query.requesterId, 4);
       return DataSource.CLOSURE_TABLE;
     }
 
@@ -91,12 +87,14 @@ export class GetAccessibleUsersHandler {
     const offset = query.pagination?.offset || 0;
     const limit = query.pagination?.limit || 20;
 
+    // Build filter conditions for materialized view
     let filterClause = "";
     const params = [query.requesterId];
 
     if (query.filters?.isActive !== undefined) {
       // Note: materialized view only contains active users by design
       if (!query.filters.isActive) {
+        // If requesting inactive users, return empty result since materialized view only has active users
         return {
           users: [],
           totalCount: 0,
@@ -110,24 +108,21 @@ export class GetAccessibleUsersHandler {
     }
 
     if (query.filters?.organizationNodeIds?.length) {
-      const placeholders = query.filters.organizationNodeIds
-        .map((_, i) => `$${params.length + i + 1}`)
-        .join(",");
+      const placeholders = query.filters.organizationNodeIds.map((_, i) => `$${params.length + i + 1}`).join(',');
       params.push(...query.filters.organizationNodeIds);
       filterClause += ` AND target_node_id IN (${placeholders})`;
     }
 
     if (query.filters?.searchTerm) {
-      params.push(
-        `%${query.filters.searchTerm}%`,
-        `%${query.filters.searchTerm}%`,
-      );
+      params.push(`%${query.filters.searchTerm}%`, `%${query.filters.searchTerm}%`);
       filterClause += ` AND (target_name ILIKE $${params.length - 1} OR target_email ILIKE $${params.length})`;
     }
 
+    params.push(limit, offset);
+
+    // Query the materialized view directly for maximum performance
     const [users, totalCountResult] = await Promise.all([
-      dbRead.$queryRawUnsafe(
-        `
+      dbRead.$queryRawUnsafe(`
         SELECT DISTINCT
           target_user_id as id,
           target_name as name,
@@ -139,19 +134,14 @@ export class GetAccessibleUsersHandler {
         WHERE requester_id = $1
           ${filterClause}
         ORDER BY target_name ASC
-        LIMIT ${limit} OFFSET ${offset}
-      `,
-        ...params,
-      ),
-      dbRead.$queryRawUnsafe(
-        `
+        LIMIT $${params.length - 1} OFFSET $${params.length}
+      `, ...params),
+      dbRead.$queryRawUnsafe(`
         SELECT COUNT(DISTINCT target_user_id) as total
         FROM user_accessible_hierarchy
         WHERE requester_id = $1
           ${filterClause}
-      `,
-        ...params,
-      ), // Remove limit and offset for count query
+      `, ...params.slice(0, -2)) // Remove limit and offset for count query
     ]);
 
     const totalCount = (totalCountResult as any[])[0]?.total || 0;
@@ -180,7 +170,7 @@ export class GetAccessibleUsersHandler {
       organizationNodeId: row.organization_node_id,
       organizationNodeName: row.organization_node_name || "",
       isActive: true, // Materialized view only contains active users
-      lastLoginAt: undefined, // Not available in materialized view
+      lastLoginAt: null, // Not available in materialized view
       createdAt: new Date(), // Not available in materialized view
       updatedAt: new Date(), // Not available in materialized view
     };
@@ -270,6 +260,7 @@ export class GetAccessibleUsersHandler {
     };
   }
 
+
   private async getAccessibleUsersOptimized(
     query: GetAccessibleUsersQuery,
     offset: number,
@@ -279,25 +270,22 @@ export class GetAccessibleUsersHandler {
     let filterClause = "";
 
     if (query.filters?.isActive !== undefined) {
-      params.push(query.filters.isActive.toString());
+      params.push(query.filters.isActive);
       filterClause += " AND u2.is_active = $" + params.length;
     }
 
     if (query.filters?.organizationNodeIds?.length) {
-      const placeholders = query.filters.organizationNodeIds
-        .map((_, i) => `$${params.length + i + 1}`)
-        .join(",");
+      const placeholders = query.filters.organizationNodeIds.map((_, i) => `$${params.length + i + 1}`).join(',');
       params.push(...query.filters.organizationNodeIds);
       filterClause += ` AND u2.organization_node_id IN (${placeholders})`;
     }
 
     if (query.filters?.searchTerm) {
-      params.push(
-        `%${query.filters.searchTerm}%`,
-        `%${query.filters.searchTerm}%`,
-      );
+      params.push(`%${query.filters.searchTerm}%`, `%${query.filters.searchTerm}%`);
       filterClause += ` AND (u2.name ILIKE $${params.length - 1} OR u2.email ILIKE $${params.length})`;
     }
+
+    params.push(limit, offset);
 
     const sql = `
       SELECT DISTINCT
@@ -321,36 +309,29 @@ export class GetAccessibleUsersHandler {
         AND (up.expires_at IS NULL OR up.expires_at > NOW())
         ${filterClause}
       ORDER BY u2.name ASC
-      LIMIT ${limit} OFFSET ${offset}
+      LIMIT $${params.length - 1} OFFSET $${params.length}
     `;
 
     return await dbRead.$queryRawUnsafe(sql, ...params);
   }
 
-  private async getAccessibleUsersCount(
-    query: GetAccessibleUsersQuery,
-  ): Promise<any[]> {
+  private async getAccessibleUsersCount(query: GetAccessibleUsersQuery): Promise<any[]> {
     const params = [query.requesterId, query.requesterId];
     let filterClause = "";
 
     if (query.filters?.isActive !== undefined) {
-      params.push(query.filters.isActive.toString());
+      params.push(query.filters.isActive);
       filterClause += " AND u2.is_active = $" + params.length;
     }
 
     if (query.filters?.organizationNodeIds?.length) {
-      const placeholders = query.filters.organizationNodeIds
-        .map((_, i) => `$${params.length + i + 1}`)
-        .join(",");
+      const placeholders = query.filters.organizationNodeIds.map((_, i) => `$${params.length + i + 1}`).join(',');
       params.push(...query.filters.organizationNodeIds);
       filterClause += ` AND u2.organization_node_id IN (${placeholders})`;
     }
 
     if (query.filters?.searchTerm) {
-      params.push(
-        `%${query.filters.searchTerm}%`,
-        `%${query.filters.searchTerm}%`,
-      );
+      params.push(`%${query.filters.searchTerm}%`, `%${query.filters.searchTerm}%`);
       filterClause += ` AND (u2.name ILIKE $${params.length - 1} OR u2.email ILIKE $${params.length})`;
     }
 
