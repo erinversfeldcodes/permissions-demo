@@ -84,7 +84,7 @@ export interface GrantPermissionArgs {
 }
 
 export interface RevokePermissionArgs {
-  readonly input: RevokePermissionInput;
+  readonly id: string;
 }
 
 export interface BulkGrantPermissionsArgs {

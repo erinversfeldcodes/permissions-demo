@@ -1042,15 +1042,7 @@ export const resolvers = {
         };
       }
 
-      const { input } = args;
-      const validationResult = validateRevokePermissionInput(input);
-      if (!validationResult.success) {
-        return {
-          success: false,
-          errors: [mapAppErrorToGraphQLError(validationResult.error!)],
-        };
-      }
-      const { permissionId } = validationResult.data!;
+      const permissionId = args.id;
 
       try {
         const permission = await db.userPermission.findUnique({
