@@ -232,38 +232,6 @@ jobs:
       env:
         VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
 
-    - name: Comment PR with test results
-      uses: actions/github-script@v7
-      if: always()
-      with:
-        script: |
-          const fs = require('fs');
-          let testResults = 'Deployment tests completed';
-
-          try {
-            if (fs.existsSync('scripts/deployment-test-results.json')) {
-              const results = JSON.parse(fs.readFileSync('scripts/deployment-test-results.json', 'utf8'));
-              testResults = `🚀 **Preview Deployment Tests**
-
-              **Preview URL**: ${{ steps.getPreviewUrl.outputs.preview_url }}
-
-              **Results**: ${results.summary || 'Tests completed'}
-              `;
-            }
-          } catch (error) {
-            testResults = `❌ **Preview Deployment Tests Failed**
-
-            **Preview URL**: ${{ steps.getPreviewUrl.outputs.preview_url }}
-            **Error**: ${error.message}
-            `;
-          }
-
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: testResults
-          })
 
   production-deploy:
     name: Deploy to Production
