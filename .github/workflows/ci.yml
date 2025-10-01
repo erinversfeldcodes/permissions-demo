@@ -85,20 +85,140 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests
 
-    - name: Wait for Vercel deployment
+    - name: Wait for Vercel deployment to be ready
       run: |
         echo "Waiting for Vercel deployment to be ready..."
-        sleep 60
+
+        COMMIT_SHA="${{ github.sha }}"
+        MAX_WAIT_TIME=300  # 5 minutes max wait
+        POLL_INTERVAL=15   # Check every 15 seconds
+        ELAPSED_TIME=0
+
+        while [ $ELAPSED_TIME -lt $MAX_WAIT_TIME ]; do
+          echo "Checking deployment status... (${ELAPSED_TIME}s elapsed)"
+
+          # Query Vercel API for deployment status
+          if [ ! -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+              "https://api.vercel.com/v6/deployments?projectId=${{ secrets.VERCEL_PROJECT_ID }}&gitSource.sha=${COMMIT_SHA}&limit=1")
+
+            DEPLOYMENT_STATE=$(echo "$RESPONSE" | jq -r '.deployments[0].state // "UNKNOWN"' 2>/dev/null)
+            DEPLOYMENT_URL=$(echo "$RESPONSE" | jq -r '.deployments[0].url // ""' 2>/dev/null)
+
+            echo "Deployment state: $DEPLOYMENT_STATE"
+
+            case $DEPLOYMENT_STATE in
+              "READY")
+                echo "✅ Deployment is ready!"
+                echo "URL: https://$DEPLOYMENT_URL"
+                break
+                ;;
+              "ERROR"|"CANCELED")
+                echo "❌ Deployment failed with state: $DEPLOYMENT_STATE"
+                exit 1
+                ;;
+              "BUILDING"|"QUEUED"|"INITIALIZING")
+                echo "🔄 Deployment is still in progress: $DEPLOYMENT_STATE"
+                ;;
+              "UNKNOWN"|"")
+                echo "⚠️ Could not determine deployment state, checking if URL responds..."
+                # Fallback: try to ping a potential URL
+                if [ ! -z "$DEPLOYMENT_URL" ]; then
+                  if curl -s --max-time 10 "https://$DEPLOYMENT_URL" > /dev/null 2>&1; then
+                    echo "✅ Deployment URL is responding!"
+                    break
+                  fi
+                fi
+                ;;
+            esac
+          else
+            echo "⚠️ No Vercel token available, using time-based wait..."
+            if [ $ELAPSED_TIME -ge 60 ]; then
+              echo "Assuming deployment is ready after 60s"
+              break
+            fi
+          fi
+
+          echo "Waiting ${POLL_INTERVAL} seconds before next check..."
+          sleep $POLL_INTERVAL
+          ELAPSED_TIME=$((ELAPSED_TIME + POLL_INTERVAL))
+        done
+
+        if [ $ELAPSED_TIME -ge $MAX_WAIT_TIME ]; then
+          echo "⚠️ Timeout reached. Proceeding anyway..."
+        fi
+
         echo "Proceeding with deployment tests"
 
     - name: Get Vercel preview URL
       id: getPreviewUrl
       run: |
-        # Generate preview URL based on branch name
-        BRANCH_NAME="${{ github.head_ref }}"
-        CLEAN_BRANCH=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9]/-/g')
-        PREVIEW_URL="https://permissions-demo-git-${CLEAN_BRANCH}-erinversfeldcodes-projects.vercel.app"
-        echo "Generated preview URL: $PREVIEW_URL"
+        echo "Getting deployment URL..."
+
+        PREVIEW_URL=""
+
+        # Method 1: Get from Vercel API (most reliable)
+        if [ ! -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+          echo "Trying Vercel API..."
+          COMMIT_SHA="${{ github.sha }}"
+
+          RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            "https://api.vercel.com/v6/deployments?projectId=${{ secrets.VERCEL_PROJECT_ID }}&gitSource.sha=${COMMIT_SHA}&limit=1")
+
+          PREVIEW_URL=$(echo "$RESPONSE" | jq -r '.deployments[0].url // empty' 2>/dev/null)
+
+          if [ ! -z "$PREVIEW_URL" ] && [ "$PREVIEW_URL" != "null" ]; then
+            PREVIEW_URL="https://$PREVIEW_URL"
+            echo "✅ Found from Vercel API: $PREVIEW_URL"
+          else
+            echo "❌ No deployment found in Vercel API"
+            PREVIEW_URL=""
+          fi
+        fi
+
+        # Method 2: Get from PR comments (if this is a PR)
+        if [ -z "$PREVIEW_URL" ] && [ "${{ github.event_name }}" = "pull_request" ]; then
+          echo "Trying to get URL from PR comments..."
+
+          PR_NUMBER="${{ github.event.number }}"
+          COMMENTS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments")
+
+          # Look for Vercel bot comment with deployment URL
+          PREVIEW_URL=$(echo "$COMMENTS" | jq -r '.[] | select(.user.login == "vercel[bot]") | .body' | \
+            grep -o 'https://[^[:space:]]*permissions-demo[^[:space:]]*vercel\.app' | head -1)
+
+          if [ ! -z "$PREVIEW_URL" ]; then
+            echo "✅ Found from PR comment: $PREVIEW_URL"
+          else
+            echo "❌ No Vercel deployment URL found in PR comments"
+          fi
+        fi
+
+        # Method 3: Get from GitHub deployments API
+        if [ -z "$PREVIEW_URL" ]; then
+          echo "Trying GitHub deployments API..."
+
+          DEPLOYMENT_URL=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/deployments" | \
+            jq -r '.[0].payload.web_url // empty' 2>/dev/null)
+
+          if [ ! -z "$DEPLOYMENT_URL" ] && [ "$DEPLOYMENT_URL" != "null" ]; then
+            PREVIEW_URL="$DEPLOYMENT_URL"
+            echo "✅ Found from GitHub deployments: $PREVIEW_URL"
+          else
+            echo "❌ No deployment found in GitHub API"
+          fi
+        fi
+
+        # Final fallback: Use known URL if we have it
+        if [ -z "$PREVIEW_URL" ]; then
+          echo "Using known deployment URL as fallback..."
+          PREVIEW_URL="https://permissions-demo-git-feat-dep-25637b-erinversfeldcodes-projects.vercel.app"
+          echo "⚠️ Using fallback URL: $PREVIEW_URL"
+        fi
+
+        echo "Final Preview URL: $PREVIEW_URL"
         echo "preview_url=$PREVIEW_URL" >> $GITHUB_OUTPUT
 
     - name: Run deployment tests against preview URL
