@@ -1,0 +1,57 @@
+name: Production Deployment
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  production-deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    # Only deploy when pushing to main branch (i.e., when PR is merged)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to Vercel Production
+      uses: amondnet/vercel-action@v25
+      with:
+        vercel-token: ${{ secrets.VERCEL_TOKEN }}
+        vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+        vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+        vercel-args: '--prod'
+
+    - name: Wait for deployment to be ready
+      run: |
+        echo "Waiting for production deployment to be ready..."
+        sleep 30
+
+    - name: Setup Python for production tests
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies
+      run: |
+        pip install requests
+
+    - name: Run production deployment tests
+      run: |
+        python scripts/automated-deployment-testing.py --prod
+      env:
+        VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
+
+    - name: Notify production deployment success
+      if: success()
+      run: |
+        echo "✅ Production deployment successful!"
+        echo "🚀 Application is live at production URL"
+
+    - name: Notify production deployment failure
+      if: failure()
+      run: |
+        echo "❌ Production deployment failed!"
+        echo "🚨 Please check the deployment logs and fix any issues"
+        exit 1
