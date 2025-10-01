@@ -123,7 +123,7 @@ export const createRateLimitRule = (): ValidationRule => {
   return (context) => {
     return {
       OperationDefinition: (node) => {
-        const clientId = context.getVariableValues()?.clientId || "anonymous";
+        const clientId = "anonymous"; // Simplified - cannot access variables from validation context
         const now = Date.now();
 
         let tracker = requestTracker.get(clientId);

@@ -23,27 +23,27 @@ export class GrantPermissionHandler {
   ): Promise<GrantPermissionResult> {
     try {
       if (!command.userId || command.userId.trim() === '') {
-        throw new ValidationError("userId is required", "VALIDATION_ERROR");
+        throw new ValidationError("userId is required", { code: "VALIDATION_ERROR" });
       }
 
       if (!command.nodeId || command.nodeId.trim() === '') {
-        throw new ValidationError("nodeId is required", "VALIDATION_ERROR");
+        throw new ValidationError("nodeId is required", { code: "VALIDATION_ERROR" });
       }
 
       if (!command.grantedById || command.grantedById.trim() === '') {
-        throw new ValidationError("grantedById is required", "VALIDATION_ERROR");
+        throw new ValidationError("grantedById is required", { code: "VALIDATION_ERROR" });
       }
 
       if (!command.permissionType || !['READ', 'MANAGE', 'ADMIN'].includes(command.permissionType)) {
-        throw new ValidationError("Valid permission type is required", "VALIDATION_ERROR");
+        throw new ValidationError("Valid permission type is required", { code: "VALIDATION_ERROR" });
       }
 
       if (command.expiresAt && command.expiresAt <= new Date()) {
-        throw new ValidationError("Expiration date must be in the future", "VALIDATION_ERROR");
+        throw new ValidationError("Expiration date must be in the future", { code: "VALIDATION_ERROR" });
       }
 
       if (command.userId === command.grantedById) {
-        throw new DomainError("Cannot grant permission to yourself", "SELF_GRANT_FORBIDDEN");
+        throw new DomainError("Cannot grant permission to yourself", "SELF_GRANT_FORBIDDEN", {});
       }
 
       return await DatabaseConnection.transaction(async (prisma) => {

@@ -125,7 +125,7 @@ export class GetAccessibleUsersHandler {
       filterClause += ` AND (target_name ILIKE $${params.length - 1} OR target_email ILIKE $${params.length})`;
     }
 
-    params.push(limit, offset);
+    params.push(limit.toString(), offset.toString());
 
     const [users, totalCountResult] = await Promise.all([
       dbRead.$queryRawUnsafe(
@@ -182,7 +182,7 @@ export class GetAccessibleUsersHandler {
       organizationNodeId: row.organization_node_id,
       organizationNodeName: row.organization_node_name || "",
       isActive: true, // Materialized view only contains active users
-      lastLoginAt: null, // Not available in materialized view
+      lastLoginAt: undefined, // Not available in materialized view
       createdAt: new Date(), // Not available in materialized view
       updatedAt: new Date(), // Not available in materialized view
     };
@@ -281,7 +281,7 @@ export class GetAccessibleUsersHandler {
     let filterClause = "";
 
     if (query.filters?.isActive !== undefined) {
-      params.push(query.filters.isActive);
+      params.push(query.filters.isActive.toString());
       filterClause += " AND u2.is_active = $" + params.length;
     }
 
@@ -301,7 +301,7 @@ export class GetAccessibleUsersHandler {
       filterClause += ` AND (u2.name ILIKE $${params.length - 1} OR u2.email ILIKE $${params.length})`;
     }
 
-    params.push(limit, offset);
+    params.push(limit.toString(), offset.toString());
 
     const sql = `
       SELECT DISTINCT
@@ -338,7 +338,7 @@ export class GetAccessibleUsersHandler {
     let filterClause = "";
 
     if (query.filters?.isActive !== undefined) {
-      params.push(query.filters.isActive);
+      params.push(query.filters.isActive.toString());
       filterClause += " AND u2.is_active = $" + params.length;
     }
 

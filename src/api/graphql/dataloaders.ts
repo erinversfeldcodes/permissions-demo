@@ -54,6 +54,7 @@ export function createDataLoaders(): DataLoaders {
           },
           include: {
             node: true,
+            grantedBy: true,
           },
         });
 
@@ -165,12 +166,12 @@ export function createAccessibleUsersLoader() {
             ...params,
           );
 
-          return users as {
-            id: string;
-            name: string;
-            email: string;
-            organization_node_id: string;
-          }[];
+          return (users as any[]).map(user => ({
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            organizationNodeId: user.organization_node_id
+          }));
         }),
       );
 
@@ -178,7 +179,6 @@ export function createAccessibleUsersLoader() {
     },
     {
       maxBatchSize: 10,
-      cacheKeyFn: (key) => JSON.stringify(key),
     },
   );
 }

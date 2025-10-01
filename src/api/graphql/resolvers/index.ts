@@ -80,7 +80,7 @@ export const resolvers = {
 
       const enrichedPermissions = await Promise.all(
         permissions.map(async (permission) => {
-          if (!permission.grantedBy && permission.grantedById) {
+          if (!(permission as any).grantedBy && permission.grantedById) {
             const grantedBy = await context.dataloaders.userById.load(
               permission.grantedById,
             );
@@ -204,7 +204,7 @@ export const resolvers = {
         filter,
         first = 20,
         after,
-      } = args;
+      } = args.input;
 
       if (!context.isAuthenticated) {
         throw new Error("Authentication required");
@@ -1047,11 +1047,11 @@ export const resolvers = {
         };
       }
 
-      const { id } = args;
+      const { permissionId } = args.input;
 
       try {
         const permission = await db.userPermission.findUnique({
-          where: { id },
+          where: { id: permissionId },
           include: {
             user: true,
             node: true,
@@ -1061,7 +1061,7 @@ export const resolvers = {
         if (!permission) {
           return {
             success: false,
-            permission: null,
+            revokedAt: undefined,
             errors: [
               {
                 message: "Permission not found",
@@ -1087,7 +1087,7 @@ export const resolvers = {
         if (!hasAdminPermission && permission.grantedById !== context.userId) {
           return {
             success: false,
-            permission: null,
+            revokedAt: undefined,
             errors: [
               {
                 message: "Insufficient permissions to revoke this permission",
@@ -1098,7 +1098,7 @@ export const resolvers = {
         }
 
         const updatedPermission = await db.userPermission.update({
-          where: { id },
+          where: { id: permissionId },
           data: { isActive: false },
           include: {
             user: true,
@@ -1109,7 +1109,7 @@ export const resolvers = {
 
         return {
           success: true,
-          permission: updatedPermission,
+          revokedAt: new Date(),
           errors: [],
         };
       } catch (error) {
@@ -1119,7 +1119,7 @@ export const resolvers = {
             : new Error("Failed to revoke permission");
         return {
           success: false,
-          permission: null,
+          revokedAt: undefined,
           errors: [
             {
               message: appError.message || "Failed to revoke permission",
@@ -1546,9 +1546,16 @@ function enrichPermission(permission: any): PermissionResponse {
 
 function enrichUser(user: any): UserResponse {
   return {
-    ...user,
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    organizationNodeId: user.organizationNodeId,
+    organizationNode: user.organizationNode,
+    isActive: user.isActive,
+    lastLoginAt: user.lastLoginAt || null,
     createdAt: user.createdAt || new Date(),
     updatedAt: user.updatedAt || new Date(),
+    permissions: user.permissions,
   };
 }
 
