@@ -118,9 +118,7 @@ export class GetAccessibleUsersHandler {
       filterClause += ` AND (target_name ILIKE $${params.length - 1} OR target_email ILIKE $${params.length})`;
     }
 
-    params.push(limit.toString(), offset.toString());
-
-    // Query the materialized view directly for maximum performance
+    // Don't push limit/offset to params - use direct interpolation for PostgreSQL compatibility
     const [users, totalCountResult] = await Promise.all([
       dbRead.$queryRawUnsafe(`
         SELECT DISTINCT
@@ -134,14 +132,14 @@ export class GetAccessibleUsersHandler {
         WHERE requester_id = $1
           ${filterClause}
         ORDER BY target_name ASC
-        LIMIT $${params.length - 1} OFFSET $${params.length}
+        LIMIT ${limit} OFFSET ${offset}
       `, ...params),
       dbRead.$queryRawUnsafe(`
         SELECT COUNT(DISTINCT target_user_id) as total
         FROM user_accessible_hierarchy
         WHERE requester_id = $1
           ${filterClause}
-      `, ...params.slice(0, -2)) // Remove limit and offset for count query
+      `, ...params) // No need to slice since limit/offset aren't in params
     ]);
 
     const totalCount = (totalCountResult as any[])[0]?.total || 0;
@@ -285,8 +283,7 @@ export class GetAccessibleUsersHandler {
       filterClause += ` AND (u2.name ILIKE $${params.length - 1} OR u2.email ILIKE $${params.length})`;
     }
 
-    params.push(limit.toString(), offset.toString());
-
+    // Don't push limit/offset to params - use direct interpolation
     const sql = `
       SELECT DISTINCT
         u2.id,
@@ -309,7 +306,7 @@ export class GetAccessibleUsersHandler {
         AND (up.expires_at IS NULL OR up.expires_at > NOW())
         ${filterClause}
       ORDER BY u2.name ASC
-      LIMIT $${params.length - 1} OFFSET $${params.length}
+      LIMIT ${limit} OFFSET ${offset}
     `;
 
     return await dbRead.$queryRawUnsafe(sql, ...params);

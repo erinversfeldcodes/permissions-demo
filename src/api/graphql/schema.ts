@@ -76,7 +76,7 @@ export const typeDefs = gql`
     user: User!
     node: OrganizationNode!
     permissionType: PermissionType!
-    grantedBy: User!
+    grantedBy: User
     grantedAt: DateTime!
     expiresAt: DateTime
     isActive: Boolean!

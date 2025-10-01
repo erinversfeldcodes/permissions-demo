@@ -1462,6 +1462,15 @@ export const resolvers = {
   },
 
   Permission: {
+    grantedBy: async (parent: PermissionResponse, _args: unknown, context: GraphQLContext): Promise<UserResponse | null> => {
+      if (parent.grantedBy) {
+        return parent.grantedBy;
+      }
+      if (parent.grantedById) {
+        return await context.dataloaders.userById.load(parent.grantedById);
+      }
+      return null;
+    },
     isEffective: (parent: PermissionResponse): boolean => {
       const now = new Date();
       return parent.isActive && (!parent.expiresAt || parent.expiresAt > now);
