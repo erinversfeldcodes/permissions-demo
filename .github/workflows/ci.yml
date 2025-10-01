@@ -68,7 +68,7 @@ jobs:
   deployment-test:
     name: Test Preview Deployment
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main')
     needs: [test, build]
 
     steps:
