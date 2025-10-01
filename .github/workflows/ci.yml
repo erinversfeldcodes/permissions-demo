@@ -64,3 +64,70 @@ jobs:
 
     - name: Build project
       run: npm run build
+
+  deployment-test:
+    name: Test Preview Deployment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [test, build]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python for deployment tests
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install Python dependencies
+      run: |
+        cd scripts
+        pip install -r requirements.txt
+
+    - name: Wait for Vercel deployment
+      uses: patrickedqvist/wait-for-vercel-preview@v1.3.1
+      id: waitForDeployment
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        max_timeout: 300
+
+    - name: Run deployment tests against preview URL
+      run: |
+        echo "Preview URL: ${{ steps.waitForDeployment.outputs.url }}"
+        python scripts/automated-deployment-testing.py --url=${{ steps.waitForDeployment.outputs.url }}
+      env:
+        VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
+
+    - name: Comment PR with test results
+      uses: actions/github-script@v7
+      if: always()
+      with:
+        script: |
+          const fs = require('fs');
+          let testResults = 'Deployment tests completed';
+
+          try {
+            if (fs.existsSync('scripts/deployment-test-results.json')) {
+              const results = JSON.parse(fs.readFileSync('scripts/deployment-test-results.json', 'utf8'));
+              testResults = `🚀 **Preview Deployment Tests**
+
+              **Preview URL**: ${{ steps.waitForDeployment.outputs.url }}
+
+              **Results**: ${results.summary || 'Tests completed'}
+              `;
+            }
+          } catch (error) {
+            testResults = `❌ **Preview Deployment Tests Failed**
+
+            **Preview URL**: ${{ steps.waitForDeployment.outputs.url }}
+            **Error**: ${error.message}
+            `;
+          }
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: testResults
+          })
